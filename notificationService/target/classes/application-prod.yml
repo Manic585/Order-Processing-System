@@ -1,0 +1,69 @@
+spring:
+  application:
+    name: notification-service
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: notification-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.example.*"
+    listener:
+      ack-mode: manual_immediate
+
+# AWS — credentials come from EC2 Instance Profile (IAM role), no keys needed
+cloud:
+  aws:
+    region:
+      static: ${CLOUD_AWS_REGION_STATIC:ap-south-1}
+    credentials:
+      instance-profile: true
+
+notification:
+  queue:
+    order-confirmed: ${NOTIFICATION_QUEUE_ORDER_CONFIRMED}
+    order-cancelled: ${NOTIFICATION_QUEUE_ORDER_CANCELLED}
+
+server:
+  port: 8082
+  servlet:
+    context-path: /
+  error:
+    include-message: never
+    include-binding-errors: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      show-components: when_authorized
+  health:
+    kafka:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.example.notificationservice: INFO
+    org.springframework.kafka: WARN
+    io.awspring.cloud: WARN
+  pattern:
+    console: >-
+      {"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%p",
+      "service":"notification-service","logger":"%logger{36}",
+      "thread":"%t","message":"%m"}%n

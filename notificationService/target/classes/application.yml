@@ -1,0 +1,69 @@
+spring:
+  application:
+    name: notification-service
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: notification-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.example.*"
+    listener:
+      ack-mode: manual_immediate
+
+# AWS region and credentials.
+# Credentials are resolved at runtime from environment variables
+# AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY via EnvironmentVariableCredentialsProvider.
+# The access-key / secret-key values here are placeholders so that the property
+# bindings resolve cleanly in environments that pre-populate the env vars.
+cloud:
+  aws:
+    region:
+      static: ap-south-1
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID:placeholder}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:placeholder}
+
+# SQS queue URLs — replace with real ARN-based URLs before deployment.
+notification:
+  queue:
+    order-confirmed: https://sqs.ap-south-1.amazonaws.com/123456789012/order-confirmed-queue
+    order-cancelled: https://sqs.ap-south-1.amazonaws.com/123456789012/order-cancelled-queue
+    order-failed: https://sqs.ap-south-1.amazonaws.com/123456789012/order-failed-queue
+
+server:
+  port: 8082
+  servlet:
+    context-path: /
+  error:
+    include-message: always
+    include-binding-errors: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+  health:
+    kafka:
+      enabled: true
+
+logging:
+  level:
+    com.example.notificationservice: DEBUG
+    org.springframework.kafka: INFO
+    io.awspring.cloud: INFO

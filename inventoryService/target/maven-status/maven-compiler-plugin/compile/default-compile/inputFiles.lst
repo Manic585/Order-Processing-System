@@ -1,0 +1,12 @@
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/InventoryServiceApplication.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/config/KafkaConfig.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/domain/model/Product.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/domain/repository/ProductRepository.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/init/DataInitializer.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/kafka/consumer/OrderEventConsumer.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/kafka/event/InventoryUpdatedEvent.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/kafka/event/OrderCreatedEvent.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/kafka/event/OrderItemEvent.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/kafka/producer/InventoryEventPublisher.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/service/InventoryCheckResult.java
+/Users/manickam/Personal/Manic/TechLearning/Spring/Order Processing System/inventoryService/src/main/java/com/example/inventoryservice/service/ProductService.java

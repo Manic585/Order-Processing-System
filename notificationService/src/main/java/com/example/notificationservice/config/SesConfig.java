@@ -3,6 +3,7 @@ package com.example.notificationservice.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
@@ -29,14 +30,12 @@ public class SesConfig {
     @Value("${cloud.aws.region.static}")
     private String region;
 
-    @Value("${cloud.aws.credentials.profile-name}")
-    private String profileName;
 
     @Bean
     public SesV2Client sesV2Client() {
         return SesV2Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(ProfileCredentialsProvider.create(profileName))
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 .build();
     }
 }

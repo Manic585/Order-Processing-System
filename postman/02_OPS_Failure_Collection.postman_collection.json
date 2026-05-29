@@ -1,0 +1,1231 @@
+{
+  "info": {
+    "_postman_id": "ops-failure-2026-v1",
+    "name": "OPS — ❌ FAILURE Scenarios",
+    "description": "Negative / error-path test suite for the Order Processing System.\n\n**Run Folder 0 (Setup) first** — it logs in and places a reference order so subsequent failure tests have valid IDs to work with.\n\n**Failure categories tested:**\n1. Authentication failures  (401, 400)\n2. Authorization / no-token failures  (401)\n3. Place Order — bean validation  (400)\n4. Idempotency key conflict  (409)\n5. Order not found  (404)\n6. Cancel order failures  (404, 422)\n\n**Error response shape (all 4xx):**\n```json\n{\n  \"timestamp\": \"<ISO-8601 instant>\",\n  \"status\": 4xx,\n  \"error\": \"<category>\",\n  \"message\": \"<detail>\",\n  \"path\": \"<request URI>\"\n}\n```",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url",              "value": "http://localhost:8080", "type": "string" },
+    { "key": "token",                 "value": "",                      "type": "string", "description": "Auto-set by Setup Login" },
+    { "key": "ref_order_id",          "value": "",                      "type": "string", "description": "Auto-set by Setup Place Order (PENDING order used by cancel-failure tests)" },
+    { "key": "conflict_key",          "value": "",                      "type": "string", "description": "Auto-set by folder 4 first request; reused in duplicate request" },
+    { "key": "confirmed_order_id",    "value": "REPLACE-WITH-A-CONFIRMED-ORDER-UUID", "type": "string", "description": "Manually set: paste UUID of an order that has been CONFIRMED by the Kafka flow — needed for test 6.4" }
+  ],
+  "item": [
+
+    {
+      "name": "0 · Test Setup  (run first)",
+      "item": [
+
+        {
+          "name": "S1 · Setup — Login  →  200 (captures token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Setup: login succeeded', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const token = pm.response.json().token;",
+                  "    pm.expect(token).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('token', token);",
+                  "    console.log('[SETUP] Token captured.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"user1\",\n  \"password\": \"password1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Setup: obtain a valid JWT for use in all failure tests that require authentication."
+          }
+        },
+
+        {
+          "name": "S2 · Setup — Place Reference Order  →  201 (captures ref_order_id)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_setup_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Setup: reference order created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('ref_order_id', json.orderId);",
+                  "    console.log('[SETUP] ref_order_id set to:', json.orderId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_setup_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST-FAIL-TEST\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Test Product\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "Setup: places a PENDING order and captures its ID into {{ref_order_id}}.\nUsed by Folder 6 cancel-failure tests (wrong-customer, non-PENDING)."
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "1 · Authentication Failures",
+      "item": [
+
+        {
+          "name": "1.1 · Wrong Password  →  401 Unauthorized",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Response body is empty (Spring Security default)', function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"user1\",\n  \"password\": \"wrongpassword\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Correct username, wrong password.\n\n**Expected:** 401 Unauthorized, empty body (Spring Security default on AuthenticationException)."
+          }
+        },
+
+        {
+          "name": "1.2 · Blank Username  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error field is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});",
+                  "",
+                  "pm.test('message mentions username', function () {",
+                  "    const msg = pm.response.json().message.toLowerCase();",
+                  "    pm.expect(msg).to.include('username');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"\",\n  \"password\": \"password1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Username is blank (empty string — violates @NotBlank).\n\n**Constraint:** `@NotBlank(message = \"Username must not be blank\")`\n**Expected:** 400 Bad Request, error = Validation Failed"
+          }
+        },
+
+        {
+          "name": "1.3 · Blank Password  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error field is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});",
+                  "",
+                  "pm.test('message mentions password', function () {",
+                  "    const msg = pm.response.json().message.toLowerCase();",
+                  "    pm.expect(msg).to.include('password');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"user1\",\n  \"password\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Password is blank (empty string — violates @NotBlank).\n\n**Constraint:** `@NotBlank(message = \"Password must not be blank\")`\n**Expected:** 400 Bad Request, error = Validation Failed"
+          }
+        },
+
+        {
+          "name": "1.4 · Non-existent User  →  401 Unauthorized",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"ghost_user_xyz\",\n  \"password\": \"anypassword\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Username does not exist in the system.\n\n**Expected:** 401 Unauthorized (UserDetailsService throws UsernameNotFoundException)."
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "2 · Authorization Failures  (no or bad JWT)",
+      "item": [
+
+        {
+          "name": "2.1 · Place Order — No Authorization Header  →  401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 or 403 (no token)', function () {",
+                  "    pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "some-key-that-wont-matter" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "No Authorization header at all.\n\n**Expected:** 401/403 — JwtAuthenticationFilter passes through; Spring Security rejects unauthenticated access to /api/**."
+          }
+        },
+
+        {
+          "name": "2.2 · Place Order — Malformed / Invalid JWT  →  401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 or 403 (invalid token)', function () {",
+                  "    pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer this.is.not.a.valid.jwt.token" },
+              { "key": "Idempotency-Key", "value": "some-key" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "Authorization header present but token is not a valid JWT.\n\n**Expected:** 401/403 — JwtAuthenticationFilter catches JwtException (logged as AUTH_FAILURE), SecurityContext not populated."
+          }
+        },
+
+        {
+          "name": "2.3 · Get Order — No Authorization Header  →  401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 or 403 (no token on GET)', function () {",
+                  "    pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/orders/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "GET request without an Authorization header.\n\n**Expected:** 401/403 — no JWT, access denied."
+          }
+        },
+
+        {
+          "name": "2.4 · Cancel Order — No Authorization Header  →  401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 or 403 (no token on DELETE)', function () {",
+                  "    pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-Customer-Id", "value": "CUST001" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "DELETE request without an Authorization header.\n\n**Expected:** 401/403 — no JWT, access denied."
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "3 · Place Order — Validation Failures  (all → 400)",
+      "item": [
+
+        {
+          "name": "3.1 · Missing Idempotency-Key header  →  400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "No `Idempotency-Key` header and no `idempotencyKey` field in request body.\n\n**Expected:** 400 — service requires an idempotency key (MissingRequestHeaderException or application-level validation)."
+          }
+        },
+
+        {
+          "name": "3.2 · Blank customerId  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});",
+                  "",
+                  "pm.test('message mentions customerId', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('customerid');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "customerId is an empty string — violates `@NotBlank(message = \"customerId must not be blank\")`.\n\n**Expected:** 400 Validation Failed"
+          }
+        },
+
+        {
+          "name": "3.3 · Empty items array  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});",
+                  "",
+                  "pm.test('message mentions items', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('items');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "items is an empty array — violates `@NotEmpty(message = \"items must not be empty\")`.\n\n**Expected:** 400 Validation Failed"
+          }
+        },
+
+        {
+          "name": "3.4 · Item quantity = 0  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});",
+                  "",
+                  "pm.test('message mentions quantity', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('quantity');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 0,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "quantity = 0 — violates `@Min(value = 1, message = \"quantity must be at least 1\")`.\n\n**Expected:** 400 Validation Failed, message contains 'quantity'"
+          }
+        },
+
+        {
+          "name": "3.5 · Item quantity = -1  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": -1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "quantity = -1 — violates `@Min(value = 1)`.\n\n**Expected:** 400 Validation Failed"
+          }
+        },
+
+        {
+          "name": "3.6 · unitPrice = 0.00  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('message mentions unitPrice', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('unitprice');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 0.00\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "unitPrice = 0.00 — violates `@DecimalMin(value = \"0.01\", message = \"unitPrice must be at least 0.01\")`.\n\n**Expected:** 400 Validation Failed, message contains 'unitPrice'"
+          }
+        },
+
+        {
+          "name": "3.7 · unitPrice = -9.99  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error is Validation Failed', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Validation Failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": -9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "unitPrice is negative — violates `@DecimalMin(\"0.01\")`.\n\n**Expected:** 400 Validation Failed"
+          }
+        },
+
+        {
+          "name": "3.8 · Blank productId  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('message mentions productId', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('productid');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "productId is blank — violates `@NotBlank(message = \"productId must not be blank\")`.\n\n**Expected:** 400 Validation Failed"
+          }
+        },
+
+        {
+          "name": "3.9 · Blank productName  →  400 Validation Failed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('_tmp_key', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('message mentions productName', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('productname');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{_tmp_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "productName is blank — violates `@NotBlank(message = \"productName must not be blank\")`.\n\n**Expected:** 400 Validation Failed"
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "4 · Idempotency Key Conflict  (→ 409)",
+      "item": [
+
+        {
+          "name": "4.1 · First Order — Unique Key  →  201 Created",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Save key so the NEXT request can reuse the exact same value",
+                  "const key = pm.variables.replaceIn('{{$guid}}');",
+                  "pm.collectionVariables.set('conflict_key', key);",
+                  "console.log('conflict_key set to:', key);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created (first use of key)', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Order created with PENDING status', function () {",
+                  "    pm.expect(pm.response.json().status).to.equal('PENDING');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{conflict_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST-IDEM\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "First use of the idempotency key — should succeed.\n\n**Pre-request:** Generates a UUID and saves it to {{conflict_key}}.\n**Expected:** 201 Created\n\n**Immediately run 4.2** to send the same key again."
+          }
+        },
+
+        {
+          "name": "4.2 · Duplicate Key — Same Idempotency-Key  →  409 Conflict",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('error is Order Already Exists', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Order Already Exists');",
+                  "});",
+                  "",
+                  "pm.test('message mentions idempotencyKey', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('idempotencykey');",
+                  "});",
+                  "",
+                  "pm.test('Error response has all required fields', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('timestamp');",
+                  "    pm.expect(json).to.have.property('status');",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json).to.have.property('path');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "Authorization",   "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "{{conflict_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"CUST-IDEM\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Widget\",\n      \"quantity\": 1,\n      \"unitPrice\": 9.99\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            },
+            "description": "Sends the exact same request with the same Idempotency-Key as 4.1.\n\n**Expected:** 409 Conflict — OrderAlreadyExistsException thrown because the idempotency key is already present in the database (unique constraint on `idempotency_key` column).\n\n**Error response:**\n```json\n{\n  \"timestamp\": \"...\",\n  \"status\": 409,\n  \"error\": \"Order Already Exists\",\n  \"message\": \"Order with idempotencyKey already exists: <key>\",\n  \"path\": \"/api/orders\"\n}\n```"
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "5 · Order Not Found  (→ 404)",
+      "item": [
+
+        {
+          "name": "5.1 · Get Order — Non-existent ID  →  404 Not Found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('error is Order Not Found', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Order Not Found');",
+                  "});",
+                  "",
+                  "pm.test('message contains the requested ID', function () {",
+                  "    pm.expect(pm.response.json().message).to.include('00000000-0000-0000-0000-000000000000');",
+                  "});",
+                  "",
+                  "pm.test('Error response shape is correct', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('timestamp');",
+                  "    pm.expect(json).to.have.property('status');",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json).to.have.property('path');",
+                  "    pm.expect(json.status).to.equal(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Requests an order with a well-formed UUID that does not exist in the database.\n\n**Expected:** 404 Not Found\n```json\n{\n  \"timestamp\": \"...\",\n  \"status\": 404,\n  \"error\": \"Order Not Found\",\n  \"message\": \"Order not found: 00000000-0000-0000-0000-000000000000\",\n  \"path\": \"/api/orders/00000000-0000-0000-0000-000000000000\"\n}\n```"
+          }
+        },
+
+        {
+          "name": "5.2 · Get Order Status — Non-existent ID  →  404 Not Found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('error is Order Not Found', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Order Not Found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/00000000-0000-0000-0000-000000000000/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "00000000-0000-0000-0000-000000000000", "status"]
+            },
+            "description": "Requests status of an order that does not exist.\n\n**Expected:** 404 Not Found"
+          }
+        },
+
+        {
+          "name": "5.3 · Get Orders by Customer — No Orders Yet  →  200 [] (empty array)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK (empty list is not a 404)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an empty array', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array');",
+                  "    pm.expect(json.length).to.equal(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/customer/CUSTOMER-THAT-HAS-NO-ORDERS",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "customer", "CUSTOMER-THAT-HAS-NO-ORDERS"]
+            },
+            "description": "Requests orders for a customer that has placed no orders.\n\n**Key behaviour:** This is NOT a 404. A customer with no orders returns 200 with an empty array `[]`.\n\n**Expected:** 200 OK, body = `[]`"
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "6 · Cancel Order — Failures",
+      "item": [
+
+        {
+          "name": "6.1 · Cancel Non-existent Order  →  404 Not Found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('error is Order Not Found', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Order Not Found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization",  "value": "Bearer {{token}}" },
+              { "key": "X-Customer-Id", "value": "CUST001" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Attempts to cancel an order that does not exist.\n\n**Expected:** 404 Not Found"
+          }
+        },
+
+        {
+          "name": "6.2 · Cancel — Missing X-Customer-Id header  →  400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request (missing required header)', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{ref_order_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{ref_order_id}}"]
+            },
+            "description": "DELETE request without the required `X-Customer-Id` header.\n\n**Depends on:** {{ref_order_id}} captured by Setup S2.\n**Expected:** 400 Bad Request — MissingRequestHeaderException for `X-Customer-Id`."
+          }
+        },
+
+        {
+          "name": "6.3 · Cancel — Wrong Customer ID  →  422 Invalid Order State",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('error is Invalid Order State', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Invalid Order State');",
+                  "});",
+                  "",
+                  "pm.test('Error response has all required fields', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('timestamp');",
+                  "    pm.expect(json).to.have.property('status');",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json).to.have.property('path');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization",  "value": "Bearer {{token}}" },
+              { "key": "X-Customer-Id", "value": "COMPLETELY-WRONG-CUSTOMER-ID" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{ref_order_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{ref_order_id}}"]
+            },
+            "description": "X-Customer-Id does not match the customerId on the order (order was placed by CUST-FAIL-TEST).\n\n**Depends on:** {{ref_order_id}} captured by Setup S2.\n**Expected:** 422 Unprocessable Entity — InvalidOrderStateException (order does not belong to this customer).\n\n**Error response:**\n```json\n{\n  \"status\": 422,\n  \"error\": \"Invalid Order State\",\n  \"message\": \"Order ... does not belong to customer COMPLETELY-WRONG-CUSTOMER-ID\"\n}\n```"
+          }
+        },
+
+        {
+          "name": "6.4 · Cancel Non-PENDING Order  →  422 Invalid Order State",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('error is Invalid Order State', function () {",
+                  "    pm.expect(pm.response.json().error).to.equal('Invalid Order State');",
+                  "});",
+                  "",
+                  "pm.test('message says only PENDING orders can be cancelled', function () {",
+                  "    pm.expect(pm.response.json().message.toLowerCase()).to.include('pending');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization",  "value": "Bearer {{token}}" },
+              { "key": "X-Customer-Id", "value": "CUST001" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{confirmed_order_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{confirmed_order_id}}"]
+            },
+            "description": "Attempts to cancel an order that has already transitioned from PENDING → CONFIRMED (or FAILED).\n\n**SETUP REQUIRED:**\n1. Place an order via the Success Collection request 03\n2. Wait ~3–5 seconds for the Kafka async flow to complete (inventoryService checks stock and publishes `inventory.updated`)\n3. Verify status = CONFIRMED using Success Collection request 06\n4. Copy the orderId and paste it into the `confirmed_order_id` collection variable\n\n**Expected:** 422 Unprocessable Entity\n```json\n{\n  \"status\": 422,\n  \"error\": \"Invalid Order State\",\n  \"message\": \"Only PENDING orders can be cancelled. Current status: CONFIRMED\"\n}\n```"
+          }
+        }
+
+      ]
+    }
+
+  ]
+}

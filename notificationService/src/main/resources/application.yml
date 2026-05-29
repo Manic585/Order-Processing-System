@@ -32,8 +32,7 @@ cloud:
     region:
       static: ap-south-1
     credentials:
-      access-key: ${AWS_ACCESS_KEY_ID:placeholder}
-      secret-key: ${AWS_SECRET_ACCESS_KEY:placeholder}
+      profile-name: ${AWS_PROFILE:notification-user}
 
 notification:
   # ── SQS queue URLs ────────────────────────────────────────────────────────

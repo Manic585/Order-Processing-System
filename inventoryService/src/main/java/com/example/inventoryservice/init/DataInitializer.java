@@ -32,19 +32,14 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         List<Product> products = List.of(
-                product("PROD001", "Laptop Pro 15",        100),
-                product("PROD002", "Wireless Mouse",        100),
-                product("PROD003", "Mechanical Keyboard",   100),
-                product("PROD004", "USB-C Hub",             100),
-                product("PROD005", "27-inch Monitor",       100)
+                product("PROD-001", "Laptop Pro 15",        100),
+                product("PROD-002", "Wireless Mouse",        100),
+                product("PROD-003", "Mechanical Keyboard",   100),
+                product("PROD-004", "USB-C Hub",             100),
+                product("PROD-005", "27-inch Monitor",       100)
         );
 
-        products.forEach(p -> {
-            if (!productRepository.existsById(p.getId())) {
-                productRepository.save(p);
-            }
-        });
-        //productRepository.saveAll(products);
+        productRepository.saveAll(products);
         log.info("event=DATA_INIT_COMPLETE count={}", products.size());
     }
 
@@ -54,7 +49,6 @@ public class DataInitializer implements CommandLineRunner {
                 .name(name)
                 .availableQuantity(qty)
                 .reservedQuantity(0)
-                .version(0L)
                 .build();
     }
 }
